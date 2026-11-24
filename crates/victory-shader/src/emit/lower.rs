@@ -3701,58 +3701,70 @@ impl<'a> Lower<'a> {
                     _ => None,
                 })
             });
-        let Some((at, first)) = use_at else {
-            return Err("a descriptor read only as data");
-        };
+        let first = use_at.map_or(0, |(_, first)| first);
         let src = Source::Loaded { load: site, first };
         let used = self.used_kind(&src);
-        let ui: &Inst = &self.x.p.blocks[at.0].insts[at.1];
-        let un = ui.name();
-        let uav = un.contains("store")
-            || un.contains("atomic")
-            || used.is_some_and(|u| u.kind == ResourceType::Uav);
-        let u = if uav { 0x1000 } else { 0 };
-        let (props, image) = match &ui.fields {
-            Fields::Image { dim, .. } => {
-                let kind = match dim {
-                    0 => 1,
-                    1 => 2,
-                    2 => 4,
-                    4 => 6,
-                    5 => 7,
-                    _ => return Err("an image dimension (cube or MSAA)"),
+        let (props, image, uav) = match use_at {
+            // A descriptor the program never accesses with a resource
+            // instruction, only reads the dwords as numbers (a size, to bound
+            // a loop, say): the dwords take the values the raw view below
+            // gives them, as if the program did access it.
+            None => ((11, 0), None, false),
+            Some((at, _)) => {
+                let ui: &Inst = &self.x.p.blocks[at.0].insts[at.1];
+                let un = ui.name();
+                let uav = un.contains("store")
+                    || un.contains("atomic")
+                    || used.is_some_and(|u| u.kind == ResourceType::Uav);
+                let u = if uav { 0x1000 } else { 0 };
+                let (props, image) = match &ui.fields {
+                    Fields::Image { dim, .. } => {
+                        let kind = match dim {
+                            0 => 1,
+                            1 => 2,
+                            2 => 4,
+                            4 => 6,
+                            5 => 7,
+                            _ => return Err("an image dimension (cube or MSAA)"),
+                        };
+                        ((kind | u, 0x409), Some(kind))
+                    }
+                    Fields::Buffer { idxen, format, .. } => {
+                        let stride = used.map_or(0, |u| u.stride);
+                        let props = if un.starts_with("buffer_load_format")
+                            || un.starts_with("buffer_store_format")
+                        {
+                            (10 | u, 0x409)
+                        } else if *idxen
+                            && format.is_none()
+                            && stride >= 4
+                            && stride.is_multiple_of(4)
+                        {
+                            (12 | u, stride)
+                        } else {
+                            (11 | u, 0)
+                        };
+                        if used.is_some_and(|u| u.kind == ResourceType::Cbv) {
+                            return Err("a constant buffer's descriptor read as data");
+                        }
+                        (props, None)
+                    }
+                    // A buffer descriptor also read by `s_buffer_load`: a raw SRV
+                    // has a size (a constant buffer view does not).
+                    Fields::Smem { .. } => match used.map(|u| u.kind) {
+                        Some(ResourceType::Srv) => ((11 | u, 0), None),
+                        Some(ResourceType::Cbv) => {
+                            return Err("a constant buffer's descriptor read as data");
+                        }
+                        _ => return Err("a descriptor read as data and by a scalar load"),
+                    },
+                    Fields::Flat { .. } => {
+                        return Err("a descriptor read as data and by a global access");
+                    }
+                    _ => return Err("a descriptor read as data and by another instruction"),
                 };
-                ((kind | u, 0x409), Some(kind))
+                (props, image, uav)
             }
-            Fields::Buffer { idxen, format, .. } => {
-                let stride = used.map_or(0, |u| u.stride);
-                let props = if un.starts_with("buffer_load_format")
-                    || un.starts_with("buffer_store_format")
-                {
-                    (10 | u, 0x409)
-                } else if *idxen && format.is_none() && stride >= 4 && stride.is_multiple_of(4) {
-                    (12 | u, stride)
-                } else {
-                    (11 | u, 0)
-                };
-                if used.is_some_and(|u| u.kind == ResourceType::Cbv) {
-                    return Err("a constant buffer's descriptor read as data");
-                }
-                (props, None)
-            }
-            // A buffer descriptor also read by `s_buffer_load`: a raw SRV
-            // has a size (a constant buffer view does not).
-            Fields::Smem { .. } => match used.map(|u| u.kind) {
-                Some(ResourceType::Srv) => ((11 | u, 0), None),
-                Some(ResourceType::Cbv) => {
-                    return Err("a constant buffer's descriptor read as data");
-                }
-                _ => return Err("a descriptor read as data and by a scalar load"),
-            },
-            Fields::Flat { .. } => {
-                return Err("a descriptor read as data and by a global access");
-            }
-            _ => return Err("a descriptor read as data and by another instruction"),
         };
         let h = self.handle(site, &src, false, props)?;
         let c = self.cur;
@@ -3803,6 +3815,14 @@ impl<'a> Lower<'a> {
                 let last = self.s.m.bin(c, Bin::Shl, levels, k16);
                 let d3 = self.s.m.bin(c, Bin::Or, base, last);
                 vec![(1, d1), (2, d2), (3, d3), (4, depth)]
+            }
+            // A descriptor the program only reads as numbers: the address
+            // dwords and the typed bits have no host value (an address that
+            // starts at the view's own base reads 0), the record count is the
+            // host view's size.
+            None if use_at.is_none() => {
+                let z = self.s.m.i32(0);
+                vec![(0, z), (1, z), (2, field(self, 0)), (3, z)]
             }
             None => vec![(2, field(self, 0))],
         };
@@ -8679,9 +8699,7 @@ mod tests {
             S_ENDPGM,
         ];
 
-        let code: Vec<u8> = words.iter()
-            .flat_map(|w| w.to_le_bytes())
-            .collect();
+        let code: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
 
         let native = NativeProgram {
             stage: HwStage::Cs,
@@ -8698,9 +8716,12 @@ mod tests {
 
         let p = ir::build(&native.code, false, 256).unwrap();
 
-        assert!(p.blocks.iter()
-            .flat_map(|b| &b.insts)
-            .any(|i| i.name() == "v_perm_b32"));
+        assert!(
+            p.blocks
+                .iter()
+                .flat_map(|b| &b.insts)
+                .any(|i| i.name() == "v_perm_b32")
+        );
 
         let st = structure::structure(&p).unwrap();
         let res = resource::track(&p, &native.layout, native.stage, Some(&st)).unwrap();
@@ -8720,13 +8741,12 @@ mod tests {
             target: super::super::Target::ANY,
             console_cf: false,
             per_lane_only: false,
-        }).unwrap();
+        })
+        .unwrap();
 
-        let container =
-            crate::Container::parse(&emitted.dxil).unwrap();
+        let container = crate::Container::parse(&emitted.dxil).unwrap();
 
-        let features =
-            container.part(crate::FourCC::SFI0).unwrap();
+        let features = container.part(crate::FourCC::SFI0).unwrap();
 
         u64::from_le_bytes(features.data.try_into().unwrap())
     }
