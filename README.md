@@ -23,6 +23,63 @@ The black picture comes from shaders that Scarlight cannot translate yet, so the
 skipped. The frame rate is limited by copying the title's memory. Both are being worked on
 upstream. Tested setup and measurements: [AMD-LINUX.md](AMD-LINUX.md).
 
+<!-- state:begin -->
+## Project state
+
+Last updated: 24 Nov 2026, Scarlight `fe552e4`.
+
+### Milestones
+
+| | Milestone | Note |
+|---|---|---|
+| ✅ | Boots | Boots into the title's own menus |
+| ✅ | Menus | 30 fps, drawn and interactive |
+| ✅ | Loads world | World streams in and the title's audio plays |
+| 🟡 | World picture | Mostly black: 59 of 751 world programs still skip their draws |
+| ❌ | Playable | 0.45–0.46 fps and a black picture: no real gameplay |
+
+### Shader translation
+
+| Programs | Translated | Total | Progress |
+|---|---|---|---|
+| Vertex + pixel | 13,146 | 14,234 | `█████████░ 92%` |
+| Compute | 2,404 | 2,582 | `█████████░ 93%` |
+| Mesh | 8,396 | 8,713 | `██████████ 96%` |
+| **All programs** | **23,946** | **26,084** | `█████████░ 92%` |
+| World set, translate → SPIR-V → RADV pipeline | 692 | 751 | `█████████░ 92%` |
+
+*Full archive: 26,084 programs, `translate-main.txt`, 4e7e6a3 (PR #704), 24 Nov 2026. World set: the 751 programs the world actually uses, each run through translation, SPIR-V validation and a real RADV pipeline (`report-20261124-165507.tsv`, 24 Nov 2026) — every program that translates also validates and builds a pipeline, so the whole gap is translation. The 555 programs that are neither vertex/pixel, compute nor mesh are not emitted yet and count as untranslated.*
+
+### Top remaining shader failures
+
+| Failures | Reason |
+|---|---|
+| 716 | a descriptor's address or format read as data |
+| 298 | a lane mask read as data |
+| 195 | an address in an SGPR that is no root parameter |
+| 166 | a packed input half no element holds |
+| 88 | an SCC the emitter did not compute |
+| 73 | an address not from a root parameter |
+| 61 | an opaque lane mask |
+| 48 | a cross-lane operation outside compute |
+
+### Performance
+
+| Measurement | RX 9070 XT, Linux / Wine (24 Nov 2026) |
+|---|---|
+| Menus | 30 fps |
+| World | 0.45–0.46 fps |
+| Title-memory copies | 628–864 ms/frame |
+| Write-watch checks | 459–573 ms/frame |
+
+### Tested hardware
+
+| GPU | OS / driver | Furthest stage |
+|---|---|---|
+| RX 9070 XT (RDNA4) | CachyOS, Mesa 26.3.1 RADV; GE-Proton11-14 with vkd3d-proton master | World loads and plays audio, picture mostly black; 692 of 751 world programs build a RADV pipeline |
+
+<!-- state:end -->
+
 ## What you need
 
 - **Your own copy of the title.** None is included, and none will be linked or shared.
