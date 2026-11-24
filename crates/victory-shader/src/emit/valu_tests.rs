@@ -1297,7 +1297,10 @@ const fn ds(op: u8, vdst: u8, addr: u8, data0: u8, offset: u16) -> [u32; 2] {
     ]
 }
 
-/// LDS programs here are one wave: wave 32, which WARP cannot run.
+/// LDS programs here are one wave: wave 32, which WARP cannot run, so these
+/// cases run on the hardware adapter only. A machine without a GPU (a CI
+/// runner) has no hardware adapter at all: `Host::new(false)` finds none and
+/// they skip.
 const HARDWARE: &[(&str, bool)] = &[("hardware", false)];
 
 const DS_WRITE_B32: u8 = 0x0d;
