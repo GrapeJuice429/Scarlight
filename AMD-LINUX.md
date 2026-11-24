@@ -1,4 +1,4 @@
-# amd-linux branch
+# AMD RDNA4 + Linux notes
 
 VIctory for **AMD RDNA4 (RADV) on Linux under Wine/Proton**. It is the `integration` branch
 (VIctory `main` + tested open PRs, credits in `INTEGRATION.md`) plus fixes and measurements made on

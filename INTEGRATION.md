@@ -19,7 +19,7 @@ Maintained by @pablogonz12. Tested on Linux (RX 9070 XT, RADV, GE-Proton / vkd3d
 | [#571](https://github.com/Marvisak/VIctory/pull/571) | @SAitken91 | Shaders: LDS byte and half accesses | LDS bytes and halves: +1 world shader |
 | [#573](https://github.com/Marvisak/VIctory/pull/573) | @banbanzhige | Shaders: lower ds_bpermute_b32 | ds_bpermute: +2 world shaders |
 | [#579](https://github.com/Marvisak/VIctory/pull/579) | @wbkepler | GPU: VICTORY_SKIP_WAVE64 diagnostics switch for wave64 programs | VICTORY_SKIP_WAVE64 diagnostics |
-| [#638](https://github.com/Marvisak/VIctory/pull/638) | @claude-GTA6 | GPU diagnostics: find what the world hang waits for, and look under a black frame | world-hang diagnostics |
+| [#638](https://github.com/Marvisak/VIctory/pull/638) | @claude-the title | GPU diagnostics: find what the world hang waits for, and look under a black frame | world-hang diagnostics |
 | [#383](https://github.com/Marvisak/VIctory/pull/383) | @xmvo | Shader: LDS bytes and halves, constant sample offsets, descriptor-data | buffer descriptors read by `s_buffer_load` and as data: +231 of 1,692 #798 programs, +4 world shaders (677 to 681 of 751). Conflicts resolved: main's LDS byte/half code kept, the PR's tests updated to current signatures |
 
 ## Our own fixes
