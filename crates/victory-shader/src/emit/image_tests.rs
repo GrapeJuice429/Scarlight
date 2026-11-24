@@ -123,9 +123,9 @@ fn build(setup: &[(u8, u32)], sample: [u32; 2]) -> HostShader {
     };
     let p = ir::build(&native.code, native.wave64, native.vgprs).expect("ir::build");
     let st = structure::structure(&p).expect("structure");
+    let res =
+        resource::track(&p, &native.layout, native.stage, Some(&st)).expect("resource::track");
     let io = io::raise(&p, &native).expect("io::raise");
-    let res = resource::track(&p, &native.layout, native.stage, Some(&st))
-        .expect("resource::track");
     let lowered = lower::lower(&lower::Parts {
         native: &native,
         p: &p,
@@ -148,6 +148,7 @@ fn build(setup: &[(u8, u32)], sample: [u32; 2]) -> HostShader {
         samplers: lowered.samplers,
         static_samplers: Vec::new(),
         root_cbvs: lowered.root_cbvs,
+        stride_table: lowered.stride_table,
         root_srvs: lowered.root_srvs,
         stride_table: lowered.stride_table,
     };
