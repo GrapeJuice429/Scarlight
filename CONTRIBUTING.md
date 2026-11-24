@@ -33,10 +33,14 @@ with the `x86_64-pc-windows-msvc` target and the `rustfmt` and `clippy` componen
 **On Linux** (cross-build with [cargo-xwin](https://github.com/rust-cross/cargo-xwin), no MSVC needed):
 
 ```sh
-cargo install cargo-xwin          # once
+# once: clang is required by the xwin linker setup, cargo-xwin alone is not enough
+cargo install cargo-xwin
 cargo xwin build --release -p victory --target x86_64-pc-windows-msvc
 # add --features diagnostics for per-frame copy and write-watch statistics
 ```
+
+Install your distribution's `clang` package as well (`clang` on Arch, `clang` on Debian/Ubuntu,
+`clang` via `xcode-select` on macOS); `cargo xwin` drives it as the cross linker.
 
 The Wine/Proton/vkd3d-proton setup that actually boots on RDNA4 is in [AMD-LINUX.md](AMD-LINUX.md).
 
@@ -57,9 +61,16 @@ cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --locked
 ```
 
-Warnings are errors, so a clean tree is required. `cargo test` includes xtask's
-`repository_passes_policy`, the asset-policy check, and the offline shader tests: they translate
-shader dumps you supply yourself, so they need no game files. Keep the tree formatted (`cargo fmt`);
+Warnings are errors, so a clean tree is required. These commands build for the **host** target, so on
+Linux they do not compile the Windows-only test modules that CI runs; only a run on Windows matches
+CI exactly. Cross-target checks such as
+`cargo xwin clippy --workspace --all-targets --target x86_64-pc-windows-msvc -- -D warnings` catch
+compilation breaks in that code, but they are not a substitute for the Windows test run.
+
+`cargo test` includes xtask's `repository_passes_policy`, the asset-policy check, and the shader
+tests in `crates/victory-shader/src/emit/diff_tests.rs`. Those tests compile inline HLSL cases with
+DXC, and they run only when `VICTORY_CONSOLE_DXC` points at a console DXC binary; they need no game
+files. Keep the tree formatted (`cargo fmt`);
 CI does not check formatting, so do not reformat unrelated files.
 
 ## Asset policy
