@@ -20,6 +20,8 @@ Maintained by @pablogonz12. Tested on Linux (RX 9070 XT, RADV, GE-Proton / vkd3d
 | [#573](https://github.com/Marvisak/VIctory/pull/573) | @banbanzhige | Shaders: lower ds_bpermute_b32 | ds_bpermute: +2 world shaders |
 | [#579](https://github.com/Marvisak/VIctory/pull/579) | @wbkepler | GPU: VICTORY_SKIP_WAVE64 diagnostics switch for wave64 programs | VICTORY_SKIP_WAVE64 diagnostics |
 | [#638](https://github.com/Marvisak/VIctory/pull/638) | @claude-the title | GPU diagnostics: find what the world hang waits for, and look under a black frame | world-hang diagnostics |
+| [#393](https://github.com/Marvisak/VIctory/pull/393) | @kxiserino | GPU: page-granular refresh ranges, journal fast path | with #124, 2 world runs each on RX 9070 XT / Wine: copies 2431-2571 -> 1732-2036 ms/frame, write-watch checks 1338-1351 -> 829-942 ms/frame, no device removed |
+| [#124](https://github.com/Marvisak/VIctory/pull/124) | @TG0000 | GPU: remember compared unchanged pages | see #393 |
 | [#383](https://github.com/Marvisak/VIctory/pull/383) | @xmvo | Shader: LDS bytes and halves, constant sample offsets, descriptor-data | buffer descriptors read by `s_buffer_load` and as data: +231 of 1,692 #798 programs, +4 world shaders (677 to 681 of 751). Conflicts resolved: main's LDS byte/half code kept, the PR's tests updated to current signatures |
 
 ## Our own fixes
