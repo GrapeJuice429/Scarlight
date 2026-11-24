@@ -26,6 +26,7 @@ Maintained by @pablogonz12. Tested on Linux (RX 9070 XT, RADV, GE-Proton / vkd3d
 
 | Fix | Upstream |
 |---|---|
+| Shaders: a table descriptor read only as numbers takes its raw view's values (816/820 of that class; world 681 -> 684/751) | not sent yet |
 | GPU: no blending on integer render targets in host pipelines | [#806](https://github.com/Marvisak/VIctory/issues/806) |
 
 ## Known test failure
