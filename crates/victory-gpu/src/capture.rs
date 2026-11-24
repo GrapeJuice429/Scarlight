@@ -254,10 +254,24 @@ fn dump_on() -> bool {
 /// most draws wrote, which in a world frame is a G-buffer layer. A debugging
 /// view: it shows a buffer as it is (a G-buffer layer unlit, say), not a
 /// finished picture.
-#[derive(Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub(crate) enum Show {
     Index(usize),
     Busiest,
+    LastColor(u32, u32),
+}
+
+fn parse_show(value: &str) -> Option<Show> {
+    let value = value.trim();
+    if value.eq_ignore_ascii_case("busiest") {
+        return Some(Show::Busiest);
+    }
+    if let Some(size) = value.strip_prefix("last:") {
+        let (width, height) = size.split_once('x')?;
+        let (width, height) = (width.parse().ok()?, height.parse().ok()?);
+        return (width > 0 && height > 0).then_some(Show::LastColor(width, height));
+    }
+    value.parse().ok().map(Show::Index)
 }
 
 pub(crate) fn show_index() -> Option<Show> {
@@ -265,11 +279,7 @@ pub(crate) fn show_index() -> Option<Show> {
     *N.get_or_init(|| {
         let v = std::env::var("VICTORY_SHOW_TARGET").ok()?;
         let v = v.trim();
-        let show = if v.eq_ignore_ascii_case("busiest") {
-            Show::Busiest
-        } else {
-            Show::Index(v.parse().ok()?)
-        };
+        let show = parse_show(v)?;
         tracing::warn!(target = v, "VICTORY_SHOW_TARGET: showing a render target instead of the title's picture");
         Some(show)
     })
@@ -278,13 +288,32 @@ pub(crate) fn show_index() -> Option<Show> {
 /// Draws that wrote each noted target this frame (show mode `busiest`).
 static HITS: std::sync::Mutex<Vec<(usize, u32)>> = std::sync::Mutex::new(Vec::new());
 
+/// The most recently noted matching color texture. First-use order in TARGETS
+/// cannot distinguish A, B, A from A, B.
+static LAST_COLOR: std::sync::Mutex<Option<std::sync::Arc<crate::resource::HostTexture>>> =
+    std::sync::Mutex::new(None);
+
+fn preview_color(desc: &D3D12_RESOURCE_DESC, width: u32, height: u32) -> bool {
+    desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D
+        && desc.Width == u64::from(width)
+        && desc.Height == height
+        && desc.MipLevels == 1
+        && desc.DepthOrArraySize == 1
+        && desc.SampleDesc.Count == 1
+        && matches!(
+            desc.Format,
+            DXGI_FORMAT_R8G8B8A8_UNORM | DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
+                | DXGI_FORMAT_B8G8R8A8_UNORM | DXGI_FORMAT_B8G8R8A8_UNORM_SRGB
+        )
+}
+
 /// At the present of `frame` in show mode: the noted target to show, if the
 /// frame has one. Clears the frame's list unless a dump still needs it.
 pub(crate) fn shown(frame: u64) -> Option<std::sync::Arc<crate::resource::HostTexture>> {
     let show = show_index()?;
     let mut targets = TARGETS.lock().unwrap_or_else(|e| e.into_inner());
     let mut hits = HITS.lock().unwrap_or_else(|e| e.into_inner());
-    if frame.is_power_of_two() && frame >= 256 {
+    if !matches!(show, Show::LastColor(..)) && frame.is_power_of_two() && frame >= 256 {
         let list: Vec<String> = targets
             .iter()
             .enumerate()
@@ -298,6 +327,7 @@ pub(crate) fn shown(frame: u64) -> Option<std::sync::Arc<crate::resource::HostTe
         tracing::info!(frame, ?list, "VICTORY_SHOW_TARGET: this frame's targets");
     }
     let pick = match show {
+        Show::LastColor(..) => LAST_COLOR.lock().unwrap_or_else(|e| e.into_inner()).take(),
         Show::Index(n) => targets.get(n).map(|(_, c)| c.clone()),
         Show::Busiest => targets
             .iter()
@@ -325,15 +355,27 @@ pub(crate) fn note_target(resource: crate::object::This) {
         return;
     }
     let dumping = dump_on() && listed(crate::queue::presented() + 1);
-    if !dumping && show_index().is_none() {
-        return;
-    }
-    if show_index().is_some() {
-        let mut hits = HITS.lock().unwrap_or_else(|e| e.into_inner());
-        match hits.iter_mut().find(|h| h.0 == resource as usize) {
-            Some(h) => h.1 += 1,
-            None => hits.push((resource as usize, 1)),
+    match show_index() {
+        Some(Show::LastColor(width, height)) => {
+            if let Some(copy) = crate::resource::host_copy(resource) {
+                // SAFETY: the retained host texture is live.
+                if preview_color(&unsafe { copy.texture.GetDesc() }, width, height) {
+                    *LAST_COLOR.lock().unwrap_or_else(|e| e.into_inner()) = Some(copy);
+                }
+            }
+            if !dumping {
+                return;
+            }
         }
+        Some(_) => {
+            let mut hits = HITS.lock().unwrap_or_else(|e| e.into_inner());
+            match hits.iter_mut().find(|h| h.0 == resource as usize) {
+                Some(h) => h.1 += 1,
+                None => hits.push((resource as usize, 1)),
+            }
+        }
+        None if !dumping => return,
+        None => {}
     }
     let mut targets = TARGETS.lock().unwrap_or_else(|e| e.into_inner());
     if !targets.iter().any(|&(r, _)| r == resource as usize)
@@ -637,6 +679,39 @@ pub(crate) fn recent_levels() -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn preview_selectors_preserve_indices_and_reject_incomplete_sizes() {
+        use super::{Show, parse_show};
+        assert_eq!(parse_show(" 3 "), Some(Show::Index(3)));
+        assert_eq!(parse_show("BUSIEST"), Some(Show::Busiest));
+        assert_eq!(parse_show("last:2560x1440"), Some(Show::LastColor(2560, 1440)));
+        for invalid in ["last:", "last:0x720", "last:1920x0", "last:12x34x56"] {
+            assert_eq!(parse_show(invalid), None);
+        }
+    }
+
+    #[test]
+    fn preview_accepts_only_compatible_single_surface_color_textures() {
+        use super::*;
+        let mut desc = D3D12_RESOURCE_DESC {
+            Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+            Width: 1280,
+            Height: 720,
+            DepthOrArraySize: 1,
+            MipLevels: 1,
+            Format: DXGI_FORMAT_B8G8R8A8_UNORM_SRGB,
+            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            ..Default::default()
+        };
+        assert!(preview_color(&desc, 1280, 720));
+        assert!(!preview_color(&desc, 1920, 1080));
+        desc.SampleDesc.Count = 4;
+        assert!(!preview_color(&desc, 1280, 720));
+        desc.SampleDesc.Count = 1;
+        desc.Format = DXGI_FORMAT_D32_FLOAT;
+        assert!(!preview_color(&desc, 1280, 720));
+    }
+
     #[test]
     fn crc_matches_the_png_check_value() {
         assert_eq!(super::crc32(b"IEND"), 0xae42_6082);
