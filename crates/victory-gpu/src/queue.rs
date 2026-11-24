@@ -289,6 +289,13 @@ extern "system" fn present(
     if let (Some(copy), Some(host)) = (&shown, crate::host::host()) {
         let state = crate::host::legal_state(&copy.texture, copy.state.load(Ordering::Relaxed));
         if host.present(&copy.texture, state, frame).is_some() {
+            static FIRST: std::sync::Once = std::sync::Once::new();
+            FIRST.call_once(|| {
+                // SAFETY: the presented texture is retained for this frame.
+                let desc = unsafe { copy.texture.GetDesc() };
+                tracing::info!(frame, width=desc.Width, height=desc.Height, format=desc.Format.0,
+                    "presented the first render target preview");
+            });
             return S_OK;
         }
     }
