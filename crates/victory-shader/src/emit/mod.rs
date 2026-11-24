@@ -509,6 +509,7 @@ fn signature(part: &[u8]) -> Result<Vec<container::SigElement>, ShaderError> {
 #[cfg(test)]
 mod tests {
     use super::Target;
+    #[cfg(windows)]
     use super::bitcode::Attr;
     use super::lower::LOOP_LIMIT;
     use super::parse_loop_limit;
@@ -524,6 +525,7 @@ mod tests {
         }
     }
     use super::container::SigElement;
+    #[cfg(windows)]
     use super::shader::Shader;
     use super::*;
     use crate::native::{ComputeIo, StageIo};
@@ -1532,6 +1534,7 @@ mod barycentric_tests {
         let st = crate::structure::structure(&p).unwrap();
         let res = crate::resource::track(&p, &native.layout, native.stage, Some(&st)).unwrap();
         let io = crate::io::raise(&p, &native).unwrap();
+        #[cfg_attr(not(windows), allow(unused_mut))]
         let mut l = super::lower::lower(&super::lower::Parts {
             native: &native,
             p: &p,
